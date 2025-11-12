@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MIRRAR - Virtual Jewelry Try-On</title>
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .slider {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #e9ecef;
+            outline: none;
+        }
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #764ba2;
+            cursor: pointer;
+            border: 2px solid white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        .slider::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #764ba2;
+            cursor: pointer;
+            border: 2px solid white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-400 to-purple-600 min-h-screen font-sans">
+    <!-- Navigation -->
+    <nav class="bg-white/95 backdrop-blur-md shadow-lg fixed w-full top-0 z-50 py-4 px-8">
+        <div class="max-w-7xl mx-auto flex justify-between items-center">
+            <div class="text-3xl font-bold text-gray-800">
+                Virtual<span class="text-purple-600">Jewelry-try-on</span>
+            </div>
+            <div class="flex gap-8 items-center">
+                <a href="#" class="text-gray-700 font-medium hover:text-purple-600 transition-colors duration-300">Earrings - Necklaces</a>
+                <a href="#" class="text-gray-700 font-medium hover:text-purple-600 transition-colors duration-300">Explore</a>
+                <a href="#" class="text-gray-700 font-medium hover:text-purple-600 transition-colors duration-300">Cart</a>
+                <a href="#" class="text-gray-700 font-medium hover:text-purple-600 transition-colors duration-300">Profile</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="max-w-7xl mx-auto pt-24 px-8">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Camera Section -->
+            <div class="lg:col-span-2 bg-white/95 backdrop-blur-md rounded-3xl shadow-xl p-8">
+                <h2 class="text-3xl font-bold text-center text-gray-800 mb-8">Virtual Necklace Try-On</h2>
+                
+                <!-- Camera Container -->
+                <div class="relative w-full h-96 rounded-2xl overflow-hidden bg-black mb-6">
+                    <img id="videoFeed" src="" alt="Camera Feed" class="w-full h-full object-cover">
+                    <div class="absolute inset-0 pointer-events-none z-10">
+                        <canvas id="renderCanvas" class="w-full h-full"></canvas>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="grid grid-cols-2 gap-4">
+                    <button id="startBtn" onclick="startTracking()" 
+                            class="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white font-semibold py-4 px-6 rounded-xl transition-all duration-300 hover:scale-105 disabled:scale-100 flex items-center justify-center gap-3 text-lg">
+                        <i class="fas fa-camera text-xl"></i>
+                        Start Camera
+                    </button>
+                    <button id="stopBtn" onclick="stopTracking()" disabled
+                            class="bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white font-semibold py-4 px-6 rounded-xl transition-all duration-300 hover:scale-105 disabled:scale-100 flex items-center justify-center gap-3 text-lg">
+                        <i class="fas fa-stop text-xl"></i>
+                        Stop Camera
+                    </button>
+                </div>
+            </div>
+
+            <!-- Controls Section -->
+            <div class="bg-white/95 backdrop-blur-md rounded-3xl shadow-xl p-8 h-fit">
+                <h3 class="text-2xl font-bold text-gray-800 mb-6">Necklace Controls</h3>
+                
+                <!-- Necklace Info -->
+                <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 text-center mb-6">
+                    <h4 class="text-lg font-semibold text-gray-800 mb-2">Custom Half-Round Necklace</h4>
+                    <p class="text-gray-600">With Diamond Pendant</p>
+                </div>
+
+                <!-- Controls -->
+                <div class="space-y-6">
+                    <!-- Scale Control -->
+                    <div>
+                        <label class="block text-gray-700 font-medium mb-3">
+                            Necklace Scale: <span id="scaleValue" class="text-purple-600 font-bold">1.0</span>
+                        </label>
+                        <input type="range" id="scaleControl" min="0.5" max="2.0" step="0.1" value="1.0" 
+                               oninput="updateNecklaceScale(this.value)"
+                               class="slider w-full">
+                    </div>
+
+                    <!-- Position Control -->
+                    <div>
+                        <label class="block text-gray-700 font-medium mb-3">
+                            Vertical Position: <span id="positionValue" class="text-purple-600 font-bold">0.0</span>
+                        </label>
+                        <input type="range" id="positionControl" min="-1.0" max="1.0" step="0.1" value="0.0" 
+                               oninput="updateNecklacePosition(this.value)"
+                               class="slider w-full">
+                    </div>
+
+                    <!-- Thickness Control -->
+                    <div>
+                        <label class="block text-gray-700 font-medium mb-3">Necklace Thickness</label>
+                        <input type="range" id="thicknessControl" min="0.02" max="0.1" step="0.01" value="0.05" 
+                               oninput="updateNecklaceThickness(this.value)"
+                               class="slider w-full">
+                    </div>
+
+                    <!-- Brightness Control -->
+                    <div>
+                        <label class="block text-gray-700 font-medium mb-3">Brightness</label>
+                        <input type="range" id="brightnessControl" min="0.5" max="1.5" step="0.1" value="1.0" 
+                               oninput="updateBrightness(this.value)"
+                               class="slider w-full">
+                    </div>
+                </div>
+
+                <!-- Status Indicator -->
+                <div id="status" class="bg-gray-100 border-l-4 border-purple-500 rounded-lg p-4 text-center mt-6">
+                    <span class="font-medium text-gray-700">Status: Ready to start</span>
+                </div>
+
+                <!-- Instructions -->
+                <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 mt-6">
+                    <h4 class="text-lg font-semibold text-gray-800 mb-3">How to Use:</h4>
+                    <ul class="space-y-2 text-gray-600">
+                        <li class="flex items-start">
+                            <span class="text-purple-600 mr-2">1)</span>
+                            Click "Start Camera" and allow camera access
+                        </li>
+                        <li class="flex items-start">
+                            <span class="text-purple-600 mr-2">2)</span>
+                            Position your face in the camera view
+                        </li>
+                        <li class="flex items-start">
+                            <span class="text-purple-600 mr-2">3)</span>
+                            The half-round necklace will track your neck
+                        </li>
+                        <li class="flex items-start">
+                            <span class="text-purple-600 mr-2">4)</span>
+                            Adjust scale and position for perfect fit
+                        </li>
+                        <li class="flex items-start">
+                            <span class="text-purple-600 mr-2">5)</span>
+                            Move naturally to see the necklace follow you
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const BACKEND_URL = "http://localhost:5000";
+        let isTracking = false;
+        let scene, engine, necklace = null;
+        let verticalOffset = 0.0;
+        let necklaceChain = null;
+        let necklacePendant = null;
+
+        // Initialize Babylon.js
+        function createScene() {
+            const canvas = document.getElementById('renderCanvas');
+            engine = new BABYLON.Engine(canvas, true, {
+                preserveDrawingBuffer: true,
+                stencil: true,
+                alpha: true
+            });
+            
+            scene = new BABYLON.Scene(engine);
+            scene.clearColor = new BABYLON.Color4(0, 0, 0, 0); // Transparent background
+            
+            // Create a simple camera
+            const camera = new BABYLON.FreeCamera("camera", new BABYLON.Vector3(0, 0, -8), scene);
+            camera.setTarget(BABYLON.Vector3.Zero());
+            
+            // Use perspective camera for better 3D rendering
+            camera.mode = BABYLON.Camera.PERSPECTIVE_CAMERA;
+            camera.fov = 0.9; // Narrow field of view for overlay
+            
+            // Lighting for the necklace
+            const light1 = new BABYLON.HemisphericLight("light1", new BABYLON.Vector3(0, 1, 0), scene);
+            light1.intensity = 1.0;
+            
+            const light2 = new BABYLON.DirectionalLight("dirLight", new BABYLON.Vector3(0, -1, -1), scene);
+            light2.intensity = 0.8;
+            light2.position = new BABYLON.Vector3(0, 5, 5);
+            
+            return scene;
+        }
+
+        function createHalfRoundNecklace() {
+            console.log("Creating custom half-round necklace...");
+            
+            // Remove existing necklace if any
+            if (necklace) {
+                necklace.dispose();
+            }
+            
+            // Create container for the entire necklace
+            necklace = new BABYLON.TransformNode("necklaceContainer", scene);
+            
+            // Create half-round tube (semi-circle necklace)
+            const neckRadius = 1.4; // Radius of the necklace
+            const tubeThickness = 0.05; // Thickness of the tube
+            const arc = Math.PI; // 180 degrees for half circle
+            
+            // Create custom path for half circle
+            const path = [];
+            const steps = 32;
+            for (let i = 0; i <= steps; i++) {
+                const angle = (i / steps) * arc - (arc ); // -90 to +90 degrees
+                const x = Math.cos(angle) * neckRadius;
+                const y = Math.sin(angle) * neckRadius * 0.4; // Flatten the curve slightly
+                path.push(new BABYLON.Vector3(x, y, 0));
+            }
+            
+            // Create the tube along the path
+            necklaceChain = BABYLON.MeshBuilder.CreateTube("necklaceChain", {
+                path: path,
+                radius: tubeThickness,
+                tessellation: 16,
+                cap: BABYLON.Mesh.CAP_ALL
+            }, scene);
+            
+            // Create pendant (sphere)
+            const pendantSize = 0.15;
+            necklacePendant = BABYLON.MeshBuilder.CreateSphere("pendant", {
+                diameter: pendantSize
+            }, scene);
+            
+            // Position pendant at the bottom center of the necklace
+            necklacePendant.position.y = -neckRadius * 0.9;
+            
+            // Create pendant chain connector
+            const connector = BABYLON.MeshBuilder.CreateCylinder("connector", {
+                height: 0.1,
+                diameter: 0.02
+            }, scene);
+            connector.position.y = -neckRadius * 0.7;
+            
+            // Parent all components to the necklace container
+            necklaceChain.parent = necklace;
+            necklacePendant.parent = necklace;
+            connector.parent = necklace;
+            
+            // Create materials
+            const goldMaterial = new BABYLON.StandardMaterial("goldMat", scene);
+            goldMaterial.diffuseColor = new BABYLON.Color3(0.9, 0.7, 0.1); // Gold color
+            goldMaterial.specularColor = new BABYLON.Color3(1, 1, 0.8);
+            goldMaterial.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0);
+            goldMaterial.specularPower = 64;
+            
+            const diamondMaterial = new BABYLON.StandardMaterial("diamondMat", scene);
+            diamondMaterial.diffuseColor = new BABYLON.Color3(0.8, 0.9, 1.0); // Diamond blue-white
+            diamondMaterial.specularColor = new BABYLON.Color3(1, 1, 1);
+            diamondMaterial.emissiveColor = new BABYLON.Color3(0.2, 0.2, 0.3);
+            diamondMaterial.specularPower = 128;
+            diamondMaterial.alpha = 0.9;
+            
+            // Apply materials
+            necklaceChain.material = goldMaterial;
+            necklacePendant.material = diamondMaterial;
+            connector.material = goldMaterial;
+            
+            // Initial position and scale
+            necklace.position = new BABYLON.Vector3(0, 0, 0);
+            necklace.scaling = new BABYLON.Vector3(1, 1, 1);
+            
+            console.log("Custom half-round necklace created successfully!");
+            updateStatus("Custom necklace ready!", "online");
+        }
+
+        function updateNecklacePosition(manualOffset = null) {
+            if (manualOffset !== null) {
+                verticalOffset = parseFloat(manualOffset);
+                document.getElementById('positionValue').textContent = verticalOffset.toFixed(1);
+                console.log("Vertical offset updated to:", verticalOffset);
+            }
+        }
+
+        function updateNecklaceScale(scale) {
+            document.getElementById('scaleValue').textContent = scale;
+            if (necklace) {
+                const scaleValue = parseFloat(scale);
+                necklace.scaling = new BABYLON.Vector3(scaleValue, scaleValue, scaleValue);
+                console.log("Necklace scale updated to:", scaleValue);
+            }
+        }
+
+        function updateNecklaceThickness(thickness) {
+            if (necklaceChain) {
+                // For a real thickness update, we'd need to recreate the tube
+                // For now, we'll adjust the scale slightly
+                const thicknessValue = parseFloat(thickness);
+                console.log("Necklace thickness updated to:", thicknessValue);
+            }
+        }
+
+        function updateBrightness(value) {
+            const video = document.getElementById('videoFeed');
+            video.style.filter = `brightness(${value})`;
+        }
+
+        function applyNecklacePosition(positionData) {
+            if (!necklace || !positionData) return;
+            
+            const pos = positionData.necklace_position;
+            if (!pos) return;
+            
+            // Convert face coordinates to 3D position
+            // Adjusted for better neck positioning
+            const x = (pos.x - 0.5) * 6;    // Horizontal position
+            const y = (0.5 - pos.y) * 7 + verticalOffset;  // Vertical position
+            const z = 0.5;  // Slightly in front
+            
+            console.log("Positioning necklace at:", {x, y, z}, "from face data:", pos);
+            
+            // Update necklace position
+            necklace.position = new BABYLON.Vector3(x, y, z);
+            
+            // Apply scaling based on face detection and manual control
+            const manualScale = parseFloat(document.getElementById('scaleControl').value);
+            const autoScale = pos.scale || 1.0;
+            const finalScale = autoScale * manualScale;
+            
+            necklace.scaling = new BABYLON.Vector3(finalScale, finalScale, finalScale);
+            
+            // Make sure it's visible
+            necklace.setEnabled(true);
+        }
+
+        async function startTracking() {
+            updateStatus("Starting camera...", "detecting");
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/start_tracking`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    isTracking = true;
+                    document.getElementById('startBtn').disabled = true;
+                    document.getElementById('stopBtn').disabled = false;
+                    
+                    // Start video feed
+                    document.getElementById('videoFeed').src = `${BACKEND_URL}/api/video_feed`;
+                    
+                    // Start position updates
+                    updateNecklacePositionLoop();
+                    updateStatus("Camera active - Move into view", "online");
+                } else {
+                    updateStatus("Failed to start camera", "offline");
+                }
+            } catch (error) {
+                console.error("Error starting tracking:", error);
+                updateStatus("Backend not available", "offline");
+            }
+        }
+
+        async function stopTracking() {
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/stop_tracking`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    isTracking = false;
+                    document.getElementById('startBtn').disabled = false;
+                    document.getElementById('stopBtn').disabled = true;
+                    document.getElementById('videoFeed').src = "";
+                    
+                    // Hide necklace when tracking stops
+                    if (necklace) {
+                        necklace.setEnabled(false);
+                    }
+                    
+                    updateStatus("Camera stopped", "offline");
+                }
+            } catch (error) {
+                console.error("Error stopping tracking:", error);
+            }
+        }
+
+        async function updateNecklacePositionLoop() {
+            if (!isTracking) return;
+            
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/get_landmarks`);
+                const data = await response.json();
+                
+                if (data.face_detected) {
+                    applyNecklacePosition(data);
+                    updateStatus("Necklace tracking active ✓", "online");
+                } else {
+                    // Hide necklace when no face detected
+                    if (necklace) {
+                        necklace.setEnabled(false);
+                    }
+                    updateStatus("Position face in camera view", "detecting");
+                }
+            } catch (error) {
+                console.error("Error updating position:", error);
+                updateStatus("Connection lost", "offline");
+            }
+            
+            if (isTracking) {
+                setTimeout(updateNecklacePositionLoop, 50);
+            }
+        }
+
+        function updateStatus(message, type) {
+            const statusElement = document.getElementById('status');
+            statusElement.innerHTML = `<span class="font-medium">Status: ${message}</span>`;
+            
+            // Remove all status classes first
+            statusElement.className = 'rounded-lg p-4 text-center mt-6 font-medium border-l-4';
+            
+            // Add appropriate classes based on type
+            switch(type) {
+                case 'online':
+                    statusElement.classList.add('bg-green-100', 'border-green-500', 'text-green-700');
+                    break;
+                case 'offline':
+                    statusElement.classList.add('bg-red-100', 'border-red-500', 'text-red-700');
+                    break;
+                case 'detecting':
+                    statusElement.classList.add('bg-yellow-100', 'border-yellow-500', 'text-yellow-700');
+                    break;
+                default:
+                    statusElement.classList.add('bg-gray-100', 'border-purple-500', 'text-gray-700');
+            }
+        }
+
+        // Initialize when page loads
+        window.addEventListener('DOMContentLoaded', async function() {
+            try {
+                console.log("Initializing application...");
+                
+                // Create Babylon.js scene
+                scene = createScene();
+                console.log("Babylon.js scene created");
+                
+                // Create custom half-round necklace
+                createHalfRoundNecklace();
+                
+                // Start render loop
+                engine.runRenderLoop(function() {
+                    if (scene) {
+                        scene.render();
+                    }
+                });
+                console.log("Render loop started");
+                
+                // Handle window resize
+                window.addEventListener('resize', function() {
+                    engine.resize();
+                });
+                
+                updateStatus("Ready to start virtual try-on", "offline");
+                
+            } catch (error) {
+                console.error("Error initializing:", error);
+                updateStatus("Error initializing 3D scene", "offline");
+            }
+        });
+
+        // Debug: Force show necklace for testing
+        window.debugShowNecklace = function() {
+            if (necklace) {
+                necklace.position = new BABYLON.Vector3(0, 0, 0.5);
+                necklace.setEnabled(true);
+                console.log("Debug: Necklace forced to center position");
+            }
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,1476 @@
+<!-- <!DOCTYPE html>
+<html>
+<head>
+    <title>Necklace Try-On</title>
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1e1e1e;
+        }
+        #renderCanvas {
+            width: 100%;
+            height: 100vh;
+            display: block;
+        }
+        #uiContainer {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1000;
+            background: rgba(0,0,0,0.8);
+            padding: 20px;
+            border-radius: 15px;
+            color: white;
+            backdrop-filter: blur(10px);
+            border: 1px solid #333;
+            min-width: 250px;
+        }
+        button {
+            background: #0078d4;
+            border: none;
+            color: white;
+            padding: 12px 20px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 14px;
+            margin: 5px 2px;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: background 0.3s;
+            font-weight: bold;
+        }
+        button:hover {
+            background: #106ebe;
+        }
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        .control-group {
+            margin: 15px 0;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #ccc;
+        }
+        select, input[type="range"] {
+            width: 100%;
+            padding: 8px;
+            border-radius: 5px;
+            border: 1px solid #555;
+            background: #333;
+            color: white;
+        }
+        #status {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 5px;
+            background: #333;
+            font-size: 12px;
+            border-left: 4px solid #0078d4;
+        }
+        .status-detected {
+            border-left-color: #107c10 !important;
+        }
+        .status-error {
+            border-left-color: #d13438 !important;
+        }
+        .status-warning {
+            border-left-color: #ffb900 !important;
+        }
+        h3 {
+            margin: 0 0 15px 0;
+            color: #0078d4;
+            border-bottom: 2px solid #0078d4;
+            padding-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="renderCanvas"></canvas>
+    
+    <div id="uiContainer">
+        <h3>💎 Necklace Try-On</h3>
+        
+        <div class="control-group">
+            <button id="startBtn" onclick="startTracking()">📷 Start Camera</button>
+            <button id="stopBtn" onclick="stopTracking()" disabled>⏹️ Stop Camera</button>
+        </div>
+        
+        <div class="control-group">
+            <label for="necklaceSelect">Select Necklace:</label>
+            <select id="necklaceSelect" onchange="loadNecklaceModel()">
+                <option value="diamond">💎 Diamond Necklace</option>
+                <option value="pearl">🔮 Pearl Necklace</option>
+                <option value="gold">⭐ Gold Chain</option>
+            </select>
+        </div>
+        
+        <div class="control-group">
+            <label for="scaleControl">Scale: <span id="scaleValue">1.0</span></label>
+            <input type="range" id="scaleControl" min="0.5" max="2.0" step="0.1" value="1.0" oninput="updateNecklaceScale(this.value)">
+        </div>
+        
+        <div class="control-group">
+            <label>Instructions:</label>
+            <div style="font-size: 11px; color: #999; line-height: 1.4;">
+                1. Click Start Camera<br>
+                2. Allow camera access<br>
+                3. Position face in view<br>
+                4. Select necklace style
+            </div>
+        </div>
+        
+        <div id="status">Status: Ready to start</div>
+    </div>
+
+    <script>
+        // Global variables
+        let canvas, engine, scene, camera;
+        let necklace = null;
+        let isTracking = false;
+        const BACKEND_URL = "http://localhost:5000";
+
+        // Initialize Babylon.js scene
+        function createScene() {
+            canvas = document.getElementById("renderCanvas");
+            engine = new BABYLON.Engine(canvas, true, {
+                preserveDrawingBuffer: true,
+                stencil: true
+            });
+            scene = new BABYLON.Scene(engine);
+            
+            // Camera
+            camera = new BABYLON.ArcRotateCamera("camera", -Math.PI / 2, Math.PI / 2, 8, BABYLON.Vector3.Zero(), scene);
+            camera.attachControl(canvas, true);
+            camera.lowerRadiusLimit = 3;
+            camera.upperRadiusLimit = 15;
+            camera.wheelPrecision = 50;
+            
+            // Lighting
+            const light1 = new BABYLON.HemisphericLight("light1", new BABYLON.Vector3(0, 1, 0), scene);
+            light1.intensity = 0.7;
+            
+            const light2 = new BABYLON.DirectionalLight("dirLight", new BABYLON.Vector3(0, -0.5, -1), scene);
+            light2.intensity = 0.5;
+            
+            // Simple environment
+            const ground = BABYLON.MeshBuilder.CreateGround("ground", {width: 20, height: 20}, scene);
+            ground.material = new BABYLON.StandardMaterial("groundMat", scene);
+            ground.material.alpha = 0.1;
+            ground.position.y = -2;
+            
+            // Create initial necklace
+            createPlaceholderNecklace();
+            
+            // Handle window resize
+            window.addEventListener("resize", function () {
+                engine.resize();
+            });
+            
+            return scene;
+        }
+
+        function createPlaceholderNecklace() {
+            if (necklace) {
+                necklace.dispose();
+            }
+            
+            // Create a better looking placeholder necklace
+            const neckRadius = 1.0;
+            const necklaceTorus = BABYLON.MeshBuilder.CreateTorus("necklace", {
+                diameter: neckRadius * 2,
+                thickness: 0.05,
+                tessellation: 64
+            }, scene);
+            
+            // Create pendant
+            const pendant = BABYLON.MeshBuilder.CreateSphere("pendant", {
+                diameter: 0.3
+            }, scene);
+            pendant.position.y = -neckRadius * 0.7;
+            
+            // Group necklace and pendant
+            necklace = new BABYLON.Mesh("necklaceGroup", scene);
+            necklaceTorus.parent = necklace;
+            pendant.parent = necklace;
+            
+            // Materials
+            const goldMaterial = new BABYLON.StandardMaterial("goldMat", scene);
+            goldMaterial.diffuseColor = new BABYLON.Color3(1, 0.8, 0.2);
+            goldMaterial.specularColor = new BABYLON.Color3(0.5, 0.5, 0.5);
+            goldMaterial.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0);
+            
+            const gemMaterial = new BABYLON.StandardMaterial("gemMat", scene);
+            gemMaterial.diffuseColor = new BABYLON.Color3(0.1, 0.5, 1);
+            gemMaterial.specularColor = new BABYLON.Color3(1, 1, 1);
+            gemMaterial.emissiveColor = new BABYLON.Color3(0, 0, 0.2);
+            
+            necklaceTorus.material = goldMaterial;
+            pendant.material = gemMaterial;
+        }
+
+        async function loadNecklaceModel() {
+            const selection = document.getElementById("necklaceSelect").value;
+            updateStatus(`Loading ${selection} necklace...`);
+            
+            // For now, we'll use the placeholder since we don't have actual GLB files
+            createPlaceholderNecklace();
+            updateStatus(`Loaded ${selection} necklace (placeholder)`);
+        }
+
+        function updateNecklaceScale(scale) {
+            document.getElementById("scaleValue").textContent = scale;
+            if (necklace) {
+                const scaleValue = parseFloat(scale);
+                necklace.scaling = new BABYLON.Vector3(scaleValue, scaleValue, scaleValue);
+            }
+        }
+
+        async function startTracking() {
+            updateStatus("Starting camera...", "warning");
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/start_tracking`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    isTracking = true;
+                    document.getElementById('startBtn').disabled = true;
+                    document.getElementById('stopBtn').disabled = false;
+                    updateStatus("Camera started - Position your face in front of camera", "detected");
+                    
+                    // Start updating necklace position
+                    updateNecklacePosition();
+                } else {
+                    updateStatus("Failed to start camera: " + (data.message || data.status), "error");
+                }
+            } catch (error) {
+                console.error("Error starting tracking:", error);
+                updateStatus("Error starting camera - Make sure Python backend is running on port 5000", "error");
+            }
+        }
+
+        async function stopTracking() {
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/stop_tracking`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    isTracking = false;
+                    document.getElementById('startBtn').disabled = false;
+                    document.getElementById('stopBtn').disabled = true;
+                    updateStatus("Camera stopped");
+                }
+            } catch (error) {
+                console.error("Error stopping tracking:", error);
+                updateStatus("Error stopping camera", "error");
+            }
+        }
+
+        async function updateNecklacePosition() {
+            if (!isTracking) return;
+            
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/get_landmarks`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.face_detected && necklace) {
+                    const pos = data.necklace_position;
+                    
+                    // Convert coordinates to 3D space
+                    const x = (pos.x - 0.5) * 3;
+                    const y = (0.5 - pos.y) * 3 + 0.5;
+                    const z = pos.z;
+                    
+                    necklace.position = new BABYLON.Vector3(x, y, z);
+                    necklace.scaling = new BABYLON.Vector3(pos.scale, pos.scale, pos.scale);
+                    
+                    updateStatus("Face detected - Necklace positioned", "detected");
+                } else {
+                    updateStatus("Searching for face... Move into camera view", "warning");
+                }
+            } catch (error) {
+                console.error("Error updating position:", error);
+                updateStatus("Connection error - Backend not responding", "error");
+            }
+            
+            if (isTracking) {
+                setTimeout(updateNecklacePosition, 33);
+            }
+        }
+
+        function updateStatus(message, type = "") {
+            const statusElement = document.getElementById("status");
+            statusElement.textContent = "Status: " + message;
+            statusElement.className = "";
+            if (type) {
+                statusElement.classList.add("status-" + type);
+            }
+        }
+
+        // Check backend connection
+        async function checkBackendConnection() {
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/status`);
+                if (response.ok) {
+                    updateStatus("Backend connected - Ready to start");
+                    return true;
+                }
+            } catch (error) {
+                updateStatus("Backend not connected - Start Python server first", "error");
+                return false;
+            }
+        }
+
+        // Initialize the application
+        window.addEventListener('DOMContentLoaded', function() {
+            try {
+                // Create Babylon.js scene
+                scene = createScene();
+                
+                // Run the render loop
+                engine.runRenderLoop(function() {
+                    if (scene) {
+                        scene.render();
+                    }
+                });
+                
+                updateStatus("Initializing...");
+                
+                // Check backend connection
+                setTimeout(checkBackendConnection, 1000);
+                
+            } catch (error) {
+                console.error("Error initializing scene:", error);
+                updateStatus("Error initializing 3D scene: " + error.message, "error");
+            }
+        });
+    </script>
+</body>
+</html> -->
+
+<!-- version 2 -->
+
+<!-- <!DOCTYPE html>
+<html>
+<head>
+    <title>Necklace Virtual Try-On</title>
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1e1e1e;
+        }
+        #renderCanvas {
+            width: 100%;
+            height: 100vh;
+            display: block;
+        }
+        #uiContainer {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1000;
+            background: rgba(0,0,0,0.8);
+            padding: 20px;
+            border-radius: 15px;
+            color: white;
+            backdrop-filter: blur(10px);
+            border: 1px solid #333;
+            min-width: 250px;
+        }
+        #videoContainer {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+            background: rgba(0,0,0,0.8);
+            padding: 10px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            border: 1px solid #333;
+        }
+        #videoFeed {
+            width: 320px;
+            height: 240px;
+            border-radius: 10px;
+            background: #000;
+        }
+        button {
+            background: #0078d4;
+            border: none;
+            color: white;
+            padding: 12px 20px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 14px;
+            margin: 5px 2px;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: background 0.3s;
+            font-weight: bold;
+        }
+        button:hover {
+            background: #106ebe;
+        }
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        .control-group {
+            margin: 15px 0;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #ccc;
+        }
+        select, input[type="range"] {
+            width: 100%;
+            padding: 8px;
+            border-radius: 5px;
+            border: 1px solid #555;
+            background: #333;
+            color: white;
+        }
+        #status {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 5px;
+            background: #333;
+            font-size: 12px;
+            border-left: 4px solid #0078d4;
+        }
+        .status-detected {
+            border-left-color: #107c10 !important;
+        }
+        .status-error {
+            border-left-color: #d13438 !important;
+        }
+        .status-warning {
+            border-left-color: #ffb900 !important;
+        }
+        h3 {
+            margin: 0 0 15px 0;
+            color: #0078d4;
+            border-bottom: 2px solid #0078d4;
+            padding-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="renderCanvas"></canvas>
+    
+    <div id="uiContainer">
+        <h3>💎 Virtual Necklace Try-On</h3>
+        
+        <div class="control-group">
+            <button id="startBtn" onclick="startTracking()">📷 Start Camera</button>
+            <button id="stopBtn" onclick="stopTracking()" disabled>⏹️ Stop Camera</button>
+        </div>
+        
+        <div class="control-group">
+            <label for="necklaceSelect">Select Necklace:</label>
+            <select id="necklaceSelect" onchange="loadNecklaceModel()">
+                <option value="necklace.glb">Default Necklace</option>
+                <option value="diamond_necklace.glb">Diamond Necklace</option>
+                <option value="pearl_necklace.glb">Pearl Necklace</option>
+            </select>
+        </div>
+        
+        <div class="control-group">
+            <label for="scaleControl">Scale: <span id="scaleValue">1.0</span></label>
+            <input type="range" id="scaleControl" min="0.1" max="3.0" step="0.1" value="1.0" oninput="updateNecklaceScale(this.value)">
+        </div>
+        
+        <div class="control-group">
+            <label>Instructions:</label>
+            <div style="font-size: 11px; color: #999; line-height: 1.4;">
+                1. Click Start Camera<br>
+                2. Allow camera access<br>
+                3. Position face in view<br>
+                4. Select necklace style<br>
+                5. See yourself in the video feed
+            </div>
+        </div>
+        
+        <div id="status">Status: Ready to start</div>
+    </div>
+
+    <div id="videoContainer">
+        <h3 style="color: white; margin: 0 0 10px 0; text-align: center;">Camera Feed</h3>
+        <img id="videoFeed" src="" alt="Camera Feed">
+    </div>
+
+    <script>
+        // Global variables
+        let canvas, engine, scene, camera;
+        let necklace = null;
+        let isTracking = false;
+        const BACKEND_URL = "http://localhost:5000";
+
+        // Initialize Babylon.js scene
+        function createScene() {
+            canvas = document.getElementById("renderCanvas");
+            engine = new BABYLON.Engine(canvas, true, {
+                preserveDrawingBuffer: true,
+                stencil: true
+            });
+            scene = new BABYLON.Scene(engine);
+            
+            // Camera - positioned to see the virtual necklace
+            camera = new BABYLON.ArcRotateCamera("camera", -Math.PI / 2, Math.PI / 2, 5, BABYLON.Vector3.Zero(), scene);
+            camera.attachControl(canvas, true);
+            camera.lowerRadiusLimit = 2;
+            camera.upperRadiusLimit = 10;
+            camera.wheelPrecision = 50;
+            
+            // Lighting
+            const light1 = new BABYLON.HemisphericLight("light1", new BABYLON.Vector3(0, 1, 0), scene);
+            light1.intensity = 0.7;
+            
+            const light2 = new BABYLON.DirectionalLight("dirLight", new BABYLON.Vector3(0, -0.5, -1), scene);
+            light2.intensity = 0.5;
+            
+            // Create a simple ground plane instead of grid
+            const ground = BABYLON.MeshBuilder.CreateGround("ground", {width: 10, height: 10}, scene);
+            const groundMaterial = new BABYLON.StandardMaterial("groundMat", scene);
+            groundMaterial.diffuseColor = new BABYLON.Color3(0.2, 0.2, 0.2);
+            groundMaterial.alpha = 0.3;
+            ground.material = groundMaterial;
+            ground.position.y = -1.5;
+            
+            // Create a simple reference axis
+            createReferenceAxis();
+            
+            updateStatus("Scene initialized - Ready to load necklace");
+            
+            return scene;
+        }
+
+        function createReferenceAxis() {
+            // Create simple axis lines for reference
+            const axisX = BABYLON.MeshBuilder.CreateLines("axisX", {
+                points: [
+                    new BABYLON.Vector3(-5, 0, 0),
+                    new BABYLON.Vector3(5, 0, 0)
+                ]
+            }, scene);
+            axisX.color = new BABYLON.Color3(1, 0, 0); // Red for X
+
+            const axisZ = BABYLON.MeshBuilder.CreateLines("axisZ", {
+                points: [
+                    new BABYLON.Vector3(0, 0, -5),
+                    new BABYLON.Vector3(0, 0, 5)
+                ]
+            }, scene);
+            axisZ.color = new BABYLON.Color3(0, 0, 1); // Blue for Z
+        }
+
+        async function loadNecklaceModel() {
+            const selection = document.getElementById("necklaceSelect").value;
+            updateStatus(`Loading ${selection}...`);
+            
+            // Remove existing necklace
+            if (necklace) {
+                necklace.dispose();
+            }
+            
+            try {
+                // Load GLB file
+                const result = await BABYLON.SceneLoader.ImportMeshAsync("", "./", selection, scene);
+                
+                if (result && result.meshes.length > 0) {
+                    necklace = result.meshes[0];
+                    
+                    // Center and scale the necklace
+                    const worldExtents = necklace.getHierarchyBoundingVectors();
+                    const size = worldExtents.max.subtract(worldExtents.min);
+                    const maxDimension = Math.max(size.x, size.y, size.z);
+                    
+                    const targetSize = 1.5;
+                    const scale = targetSize / maxDimension;
+                    
+                    necklace.scaling = new BABYLON.Vector3(scale, scale, scale);
+                    necklace.position = new BABYLON.Vector3(0, 0, 0);
+                    
+                    // Enable physics or proper positioning
+                    necklace.computeWorldMatrix(true);
+                    
+                    updateStatus(`Loaded ${selection} successfully`, "detected");
+                } else {
+                    throw new Error("No meshes found in GLB file");
+                }
+            } catch (error) {
+                console.error("Error loading GLB:", error);
+                updateStatus(`Error loading ${selection}. Using placeholder.`, "error");
+                createPlaceholderNecklace();
+            }
+        }
+
+        function createPlaceholderNecklace() {
+            if (necklace) {
+                necklace.dispose();
+            }
+            
+            // Create a torus as necklace base
+            const neckRadius = 0.8;
+            const necklaceTorus = BABYLON.MeshBuilder.CreateTorus("necklace", {
+                diameter: neckRadius * 2,
+                thickness: 0.03,
+                tessellation: 64
+            }, scene);
+            
+            // Create pendant using a sphere instead of diamond
+            const pendant = BABYLON.MeshBuilder.CreateSphere("pendant", {
+                diameter: 0.2
+            }, scene);
+            pendant.position.y = -neckRadius * 0.6;
+            
+            // Group necklace and pendant
+            necklace = new BABYLON.Mesh("necklaceGroup", scene);
+            necklaceTorus.parent = necklace;
+            pendant.parent = necklace;
+            
+            // Materials
+            const goldMaterial = new BABYLON.StandardMaterial("goldMat", scene);
+            goldMaterial.diffuseColor = new BABYLON.Color3(1, 0.8, 0.2);
+            goldMaterial.specularColor = new BABYLON.Color3(0.5, 0.5, 0.5);
+            goldMaterial.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0);
+            
+            const gemMaterial = new BABYLON.StandardMaterial("gemMat", scene);
+            gemMaterial.diffuseColor = new BABYLON.Color3(0.1, 0.5, 1);
+            gemMaterial.specularColor = new BABYLON.Color3(1, 1, 1);
+            gemMaterial.emissiveColor = new BABYLON.Color3(0, 0, 0.2);
+            
+            necklaceTorus.material = goldMaterial;
+            pendant.material = gemMaterial;
+            
+            necklace.position = new BABYLON.Vector3(0, 0, 0);
+        }
+
+        function updateNecklaceScale(scale) {
+            document.getElementById("scaleValue").textContent = scale;
+            if (necklace) {
+                const scaleValue = parseFloat(scale);
+                necklace.scaling = new BABYLON.Vector3(scaleValue, scaleValue, scaleValue);
+            }
+        }
+
+        async function startTracking() {
+            updateStatus("Starting camera...", "warning");
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/start_tracking`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    isTracking = true;
+                    document.getElementById('startBtn').disabled = true;
+                    document.getElementById('stopBtn').disabled = false;
+                    updateStatus("Camera started - Position your face in view", "detected");
+                    
+                    // Start video feed
+                    document.getElementById('videoFeed').src = `${BACKEND_URL}/api/video_feed`;
+                    
+                    // Start updating necklace position
+                    updateNecklacePosition();
+                } else {
+                    updateStatus("Failed to start camera: " + (data.message || data.status), "error");
+                }
+            } catch (error) {
+                console.error("Error starting tracking:", error);
+                updateStatus("Error starting camera - Make sure Python backend is running on port 5000", "error");
+            }
+        }
+
+        async function stopTracking() {
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/stop_tracking`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    isTracking = false;
+                    document.getElementById('startBtn').disabled = false;
+                    document.getElementById('stopBtn').disabled = true;
+                    document.getElementById('videoFeed').src = "";
+                    updateStatus("Camera stopped");
+                }
+            } catch (error) {
+                console.error("Error stopping tracking:", error);
+                updateStatus("Error stopping camera", "error");
+            }
+        }
+
+        async function updateNecklacePosition() {
+            if (!isTracking) return;
+            
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/get_landmarks`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.face_detected && necklace) {
+                    const pos = data.necklace_position;
+                    
+                    // Convert coordinates to 3D space
+                    // Adjust these multipliers to get better positioning
+                    const x = (pos.x - 0.5) * 4;  // Increased multiplier for better horizontal movement
+                    const y = (0.5 - pos.y) * 3 + 1;  // Adjusted for better vertical positioning
+                    const z = pos.z * 2;  // Depth adjustment
+                    
+                    necklace.position = new BABYLON.Vector3(x, y, z);
+                    
+                    // Use the scale from face detection or manual control
+                    const manualScale = parseFloat(document.getElementById('scaleControl').value);
+                    const autoScale = pos.scale;
+                    const finalScale = autoScale * manualScale;
+                    
+                    necklace.scaling = new BABYLON.Vector3(finalScale, finalScale, finalScale);
+                    
+                    updateStatus("Face detected - Necklace tracking active", "detected");
+                } else {
+                    updateStatus("Searching for face... Move into camera view", "warning");
+                    // Reset necklace position when no face detected
+                    if (necklace) {
+                        necklace.position = new BABYLON.Vector3(0, 0, 0);
+                    }
+                }
+            } catch (error) {
+                console.error("Error updating position:", error);
+                updateStatus("Connection error - Backend not responding", "error");
+            }
+            
+            if (isTracking) {
+                setTimeout(updateNecklacePosition, 33); // ~30fps
+            }
+        }
+
+        function updateStatus(message, type = "") {
+            const statusElement = document.getElementById("status");
+            statusElement.textContent = "Status: " + message;
+            statusElement.className = "";
+            if (type) {
+                statusElement.classList.add("status-" + type);
+            }
+        }
+
+        // Initialize the application
+        window.addEventListener('DOMContentLoaded', function() {
+            try {
+                // Create Babylon.js scene
+                scene = createScene();
+                
+                // Run the render loop
+                engine.runRenderLoop(function() {
+                    if (scene) {
+                        scene.render();
+                    }
+                });
+                
+                // Load default necklace
+                createPlaceholderNecklace();
+                
+                updateStatus("Virtual try-on ready - Click Start Camera");
+                
+            } catch (error) {
+                console.error("Error initializing scene:", error);
+                updateStatus("Error initializing 3D scene: " + error.message, "error");
+            }
+        });
+
+        // Handle window resize
+        window.addEventListener('resize', function() {
+            if (engine) {
+                engine.resize();
+            }
+        });
+    </script>
+</body>
+</html> -->
+
+<!-- <!DOCTYPE html>
+<html>
+<head>
+    <title>MIRRAR - Virtual Jewelry Try-On</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .navbar {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 20px rgba(0,0,0,0.1);
+            position: fixed;
+            width: 100%;
+            top: 0;
+            z-index: 1000;
+        }
+
+        .nav-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .logo span {
+            color: #764ba2;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+            align-items: center;
+        }
+
+        .nav-links a {
+            text-decoration: none;
+            color: #333;
+            font-weight: 500;
+            transition: color 0.3s;
+        }
+
+        .nav-links a:hover {
+            color: #764ba2;
+        }
+
+        .main-container {
+            max-width: 1200px;
+            margin: 80px auto 0;
+            padding: 2rem;
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 2rem;
+        }
+
+        .camera-section {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 2rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .camera-title {
+            text-align: center;
+            margin-bottom: 1.5rem;
+            color: #333;
+        }
+
+        .camera-container {
+            position: relative;
+            width: 100%;
+            height: 480px;
+            border-radius: 15px;
+            overflow: hidden;
+            background: #000;
+            margin-bottom: 1rem;
+        }
+
+        #videoFeed {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .necklace-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        #necklaceCanvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        .controls-section {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 2rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+            height: fit-content;
+        }
+
+        .section-title {
+            color: #333;
+            margin-bottom: 1.5rem;
+            font-size: 1.5rem;
+        }
+
+        .control-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .control-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #555;
+            font-weight: 500;
+        }
+
+        .jewelry-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .jewelry-option {
+            background: #f8f9fa;
+            border: 2px solid #e9ecef;
+            border-radius: 10px;
+            padding: 1rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .jewelry-option:hover {
+            border-color: #764ba2;
+            transform: translateY(-2px);
+        }
+
+        .jewelry-option.active {
+            border-color: #764ba2;
+            background: #764ba2;
+            color: white;
+        }
+
+        .jewelry-icon {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+        }
+
+        .btn-primary {
+            background: #764ba2;
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: #5a3780;
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: #545b62;
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .slider-container {
+            margin-bottom: 1.5rem;
+        }
+
+        .slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #e9ecef;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #764ba2;
+            cursor: pointer;
+        }
+
+        .status-indicator {
+            padding: 1rem;
+            border-radius: 10px;
+            background: #f8f9fa;
+            text-align: center;
+            font-weight: 500;
+        }
+
+        .status-online {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-offline {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-detecting {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .instructions {
+            background: #e7f3ff;
+            padding: 1rem;
+            border-radius: 10px;
+            margin-top: 1.5rem;
+        }
+
+        .instructions h4 {
+            color: #333;
+            margin-bottom: 0.5rem;
+        }
+
+        .instructions ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .instructions li {
+            padding: 0.25rem 0;
+            color: #555;
+        }
+
+        .instructions li:before {
+            content: "•";
+            color: #764ba2;
+            font-weight: bold;
+            display: inline-block;
+            width: 1em;
+            margin-left: -1em;
+        }
+
+        @media (max-width: 768px) {
+            .main-container {
+                grid-template-columns: 1fr;
+                padding: 1rem;
+            }
+            
+            .nav-links {
+                gap: 1rem;
+            }
+            
+            .logo {
+                font-size: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-content">
+            <div class="logo">MIRRAR<span>BY STYLISONLY</span></div>
+            <div class="nav-links">
+                <a href="#">Earrings - Necklaces</a>
+                <a href="#">Explore</a>
+                <a href="#">Cart</a>
+                <a href="#">Profile</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="main-container">
+        <div class="camera-section">
+            <h2 class="camera-title">Virtual Necklace Try-On</h2>
+            <div class="camera-container">
+                <img id="videoFeed" src="" alt="Camera Feed">
+                <div class="necklace-overlay">
+                    <canvas id="necklaceCanvas"></canvas>
+                </div>
+            </div>
+            <div class="button-group">
+                <button id="startBtn" class="btn btn-primary" onclick="startTracking()">
+                    📷 Start Camera
+                </button>
+                <button id="stopBtn" class="btn btn-secondary" onclick="stopTracking()" disabled>
+                    ⏹️ Stop Camera
+                </button>
+            </div>
+        </div>
+
+        <div class="controls-section">
+            <h3 class="section-title">Select Jewelry</h3>
+            
+            <div class="jewelry-grid">
+                <div class="jewelry-option active" onclick="selectJewelry('diamond')">
+                    <div class="jewelry-icon">💎</div>
+                    <div>Diamond Necklace</div>
+                </div>
+                <div class="jewelry-option" onclick="selectJewelry('pearl')">
+                    <div class="jewelry-icon">🔮</div>
+                    <div>Pearl Necklace</div>
+                </div>
+                <div class="jewelry-option" onclick="selectJewelry('gold')">
+                    <div class="jewelry-icon">⭐</div>
+                    <div>Gold Chain</div>
+                </div>
+                <div class="jewelry-option" onclick="selectJewelry('silver')">
+                    <div class="jewelry-icon">✨</div>
+                    <div>Silver Pendant</div>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Necklace Scale: <span id="scaleValue">1.0</span></label>
+                <input type="range" class="slider" id="scaleControl" min="0.5" max="2.0" step="0.1" value="1.0" oninput="updateNecklaceScale(this.value)">
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Brightness</label>
+                <input type="range" class="slider" id="brightnessControl" min="0.5" max="1.5" step="0.1" value="1.0" oninput="updateBrightness(this.value)">
+            </div>
+
+            <div id="status" class="status-indicator status-offline">
+                Status: Ready to start
+            </div>
+
+            <div class="instructions">
+                <h4>How to Use:</h4>
+                <ul>
+                    <li>Click "Start Camera" and allow camera access</li>
+                    <li>Position your face in the camera view</li>
+                    <li>Select different necklaces to try on</li>
+                    <li>Adjust scale and brightness as needed</li>
+                    <li>Move naturally to see the necklace track your neck</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const BACKEND_URL = "http://localhost:5000";
+        let isTracking = false;
+        let currentNecklace = 'diamond';
+        let necklaceImage = null;
+        let lastPosition = null;
+
+        // Initialize canvas for necklace overlay
+        const canvas = document.getElementById('necklaceCanvas');
+        const ctx = canvas.getContext('2d');
+
+        function initializeCanvas() {
+            canvas.width = 640;
+            canvas.height = 480;
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+        }
+
+        function selectJewelry(type) {
+            currentNecklace = type;
+            
+            // Update active state
+            document.querySelectorAll('.jewelry-option').forEach(option => {
+                option.classList.remove('active');
+            });
+            event.target.closest('.jewelry-option').classList.add('active');
+            
+            // Load necklace image (in real app, you'd use your GLB files)
+            loadNecklaceImage(type);
+            updateStatus(`Selected ${type} necklace`, 'detecting');
+        }
+
+        function loadNecklaceImage(type) {
+            // For demo purposes, we'll create a placeholder necklace
+            // In your actual app, you'd load the GLB file and render it
+            necklaceImage = new Image();
+            
+            // Create different colored necklaces for demo
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCanvas.width = 200;
+            tempCanvas.height = 100;
+            
+            // Draw different necklaces based on type
+            tempCtx.clearRect(0, 0, 200, 100);
+            
+            switch(type) {
+                case 'diamond':
+                    tempCtx.fillStyle = '#ffffff';
+                    tempCtx.strokeStyle = '#e0f7fa';
+                    break;
+                case 'pearl':
+                    tempCtx.fillStyle = '#f0f0f0';
+                    tempCtx.strokeStyle = '#d4af37';
+                    break;
+                case 'gold':
+                    tempCtx.fillStyle = '#ffd700';
+                    tempCtx.strokeStyle = '#daa520';
+                    break;
+                case 'silver':
+                    tempCtx.fillStyle = '#c0c0c0';
+                    tempCtx.strokeStyle = '#a9a9a9';
+                    break;
+            }
+            
+            // Draw necklace shape
+            tempCtx.lineWidth = 8;
+            tempCtx.beginPath();
+            tempCtx.arc(100, 50, 40, 0, Math.PI, true);
+            tempCtx.stroke();
+            
+            // Draw pendant
+            tempCtx.fillStyle = type === 'diamond' ? '#b9f2ff' : 
+                               type === 'pearl' ? '#f8f8ff' :
+                               type === 'gold' ? '#ffd700' : '#e6e6fa';
+            tempCtx.beginPath();
+            tempCtx.moveTo(100, 90);
+            tempCtx.lineTo(85, 70);
+            tempCtx.lineTo(115, 70);
+            tempCtx.closePath();
+            tempCtx.fill();
+            tempCtx.stroke();
+            
+            necklaceImage.src = tempCanvas.toDataURL();
+        }
+
+        function drawNecklace(position, scale = 1.0) {
+            if (!position || !necklaceImage) return;
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            const baseWidth = 120 * scale;
+            const baseHeight = 60 * scale;
+            
+            const x = position.x * canvas.width - baseWidth / 2;
+            const y = position.y * canvas.height;
+            
+            ctx.drawImage(
+                necklaceImage,
+                x, y,
+                baseWidth, baseHeight
+            );
+            
+            lastPosition = { x, y, width: baseWidth, height: baseHeight };
+        }
+
+        function updateNecklaceScale(scale) {
+            document.getElementById('scaleValue').textContent = scale;
+            if (lastPosition) {
+                drawNecklace(
+                    { 
+                        x: (lastPosition.x + lastPosition.width / 2) / canvas.width, 
+                        y: lastPosition.y / canvas.height 
+                    }, 
+                    parseFloat(scale)
+                );
+            }
+        }
+
+        function updateBrightness(value) {
+            const video = document.getElementById('videoFeed');
+            video.style.filter = `brightness(${value})`;
+        }
+
+        async function startTracking() {
+            updateStatus("Starting camera...", "detecting");
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/start_tracking`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    isTracking = true;
+                    document.getElementById('startBtn').disabled = true;
+                    document.getElementById('stopBtn').disabled = false;
+                    
+                    // Start video feed
+                    document.getElementById('videoFeed').src = `${BACKEND_URL}/api/video_feed`;
+                    
+                    // Load initial necklace
+                    loadNecklaceImage(currentNecklace);
+                    
+                    // Start position updates
+                    updateNecklacePosition();
+                    updateStatus("Camera active - Move into view", "online");
+                } else {
+                    updateStatus("Failed to start camera", "offline");
+                }
+            } catch (error) {
+                console.error("Error starting tracking:", error);
+                updateStatus("Backend not available", "offline");
+            }
+        }
+
+        async function stopTracking() {
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/stop_tracking`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    isTracking = false;
+                    document.getElementById('startBtn').disabled = false;
+                    document.getElementById('stopBtn').disabled = true;
+                    document.getElementById('videoFeed').src = "";
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    updateStatus("Camera stopped", "offline");
+                }
+            } catch (error) {
+                console.error("Error stopping tracking:", error);
+            }
+        }
+
+        async function updateNecklacePosition() {
+            if (!isTracking) return;
+            
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/get_landmarks`);
+                const data = await response.json();
+                
+                if (data.face_detected && data.necklace_position) {
+                    const pos = data.necklace_position;
+                    const scale = parseFloat(document.getElementById('scaleControl').value);
+                    
+                    drawNecklace(pos, scale * pos.scale);
+                    updateStatus("Necklace tracking active ✓", "online");
+                } else {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    updateStatus("Position face in camera view", "detecting");
+                }
+            } catch (error) {
+                console.error("Error updating position:", error);
+                updateStatus("Connection lost", "offline");
+            }
+            
+            if (isTracking) {
+                setTimeout(updateNecklacePosition, 50); // 20fps for smooth tracking
+            }
+        }
+
+        function updateStatus(message, type) {
+            const statusElement = document.getElementById('status');
+            statusElement.textContent = `Status: ${message}`;
+            statusElement.className = 'status-indicator';
+            
+            switch(type) {
+                case 'online':
+                    statusElement.classList.add('status-online');
+                    break;
+                case 'offline':
+                    statusElement.classList.add('status-offline');
+                    break;
+                case 'detecting':
+                    statusElement.classList.add('status-detecting');
+                    break;
+            }
+        }
+
+        // Initialize when page loads
+        window.addEventListener('DOMContentLoaded', function() {
+            initializeCanvas();
+            loadNecklaceImage('diamond');
+            updateStatus("Ready to start virtual try-on", "offline");
+        });
+    </script>
+</body>
+</html> -->
